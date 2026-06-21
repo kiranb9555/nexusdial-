@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanTier {
+  BASIC
+  PRO
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  ANSWERED
+  MISSED
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+enum WalletTxType {
+  CREDIT
+  DEBIT
+}
+
+model Tenant {
+  id           String   @id @default(uuid())
+  businessName String
+  mobile       String   @unique
+  planTier     PlanTier @default(BASIC)
+  createdAt    DateTime @default(now())
+
+  virtualNumbers VirtualNumber[]
+  contacts       Contact[]
+  callRecords    CallRecord[]
+  walletTxs      WalletTx[]
+  refreshTokens  RefreshToken[]
+  pooledNumbers  NumberPool[]
+
+  @@index([mobile])
+}
+
+model VirtualNumber {
+  id            String   @id @default(uuid())
+  tenantId      String
+  e164Number    String   @unique
+  label         String?
+  isActive      Boolean  @default(true)
+  provisionedAt DateTime @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  callRecords CallRecord[]
+
+  @@index([tenantId])
+}
+
+model Contact {
+  id          String    @id @default(uuid())
+  tenantId    String
+  phoneNumber String
+  name        String?
+  tags        String[]  @default([])
+  callCount   Int       @default(0)
+  firstSeenAt DateTime  @default(now())
+  isDeleted   Boolean   @default(false)
+  deletedAt   DateTime?
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  callRecords CallRecord[]
+
+  @@unique([tenantId, phoneNumber])
+  @@index([tenantId])
+  @@index([tenantId, callCount])
+}
+
+model CallRecord {
+  id              String        @id @default(uuid())
+  tenantId        String
+  virtualNumberId String
+  contactId       String?
+  direction       CallDirection
+  status          CallStatus
+  durationSec     Int           @default(0)
+  recordingKey    String?
+  aiSummary       String?
+  createdAt       DateTime      @default(now())
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  virtualNumber   VirtualNumber    @relation(fields: [virtualNumberId], references: [id], onDelete: Cascade)
+  contact         Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  intelligenceJob IntelligenceJob?
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([contactId])
+}
+
+model IntelligenceJob {
+  id           String    @id @default(uuid())
+  callRecordId String    @unique
+  status       JobStatus @default(PENDING)
+  transcript   String?
+  extractedData Json?
+  processingMs Int?
+  attempts     Int       @default(0)
+  lastError    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  callRecord CallRecord @relation(fields: [callRecordId], references: [id], onDelete: Cascade)
+}
+
+model WalletTx {
+  id          String       @id @default(uuid())
+  tenantId    String
+  type        WalletTxType
+  amountPaise Int
+  description String
+  createdAt   DateTime     @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model NumberPool {
+  id                 String   @id @default(uuid())
+  e164Number         String   @unique
+  isAssigned         Boolean  @default(false)
+  assignedToTenantId String?
+  assignedAt         DateTime?
+  createdAt          DateTime @default(now())
+
+  assignedToTenant Tenant? @relation(fields: [assignedToTenantId], references: [id], onDelete: SetNull)
+
+  @@index([isAssigned])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
